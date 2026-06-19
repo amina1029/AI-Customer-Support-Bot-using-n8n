@@ -1,0 +1,1512 @@
+{
+  "name": "AI Customer Support Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "1TpobDRldByicH_GeLma7vmS8ou6VGOhCwT-XTr1CBng",
+          "mode": "list",
+          "cachedResultName": "FAQ",
+          "cachedResultUrl": "https://docs.google.com/document/d/1TpobDRldByicH_GeLma7vmS8ou6VGOhCwT-XTr1CBng/edit?usp=drivesdk"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        400,
+        624
+      ],
+      "id": "06335840-4247-424d-aa7d-c5481d5d51d1",
+      "name": "Download file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1BFetXW2IFWzFlSr",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "aicustomerbot",
+          "mode": "list",
+          "cachedResultName": "aicustomerbot"
+        },
+        "options": {
+          "pineconeNamespace": "FAQ"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.3,
+      "position": [
+        656,
+        416
+      ],
+      "id": "386bdf76-0ec2-4be6-9b6c-e1508f574135",
+      "name": "Pinecone Vector Store",
+      "credentials": {
+        "pineconeApi": {
+          "id": "n2A62Gq2gf4yTnQu",
+          "name": "Pinecone account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "embed-english-v3.0"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsCohere",
+      "typeVersion": 1,
+      "position": [
+        624,
+        640
+      ],
+      "id": "fe76bba4-cfa6-4254-837f-e637037c5bdc",
+      "name": "Embeddings Cohere",
+      "credentials": {
+        "cohereApi": {
+          "id": "aYdMs2VRU9nfATKA",
+          "name": "Cohere account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        752,
+        640
+      ],
+      "id": "79801364-6042-423a-916d-2d19f5ce841e",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "chunkOverlap": 150,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        832,
+        848
+      ],
+      "id": "c1ab9330-7c75-4ecd-b55a-c24e98913623",
+      "name": "Recursive Character Text Splitter"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Customer name: {{ $('Google sheet Tigger').item.json.Name }}\nQuery Type: {{ $('Google sheet Tigger').item.json.Category }}\nCustomer Question:\n{{ $('Google sheet Tigger').item.json.Description }}\n\nCompany Context (from Pinecone):\nYou are provided with KnowledgeBase tool.\nUse that to answer the customer queries.\n\nTask:\n\n1. Analyze whether the context fully answers the question.\n2. Decide can_answer = true only if the answer is fully contained in the context.\n3. If even 1 part is missing → set can_answer = false.\n4. You MUST return ONLY valid JSON that matches the given schema.\n{\n  \"output\": {\n    \"subject\": {\"type\": \"string\"},\n    \"email_body\": {\"type\": \"string\"},\n    \"can_answer\": {\"type\": \"boolean\"},\n    \"confidence\": {\"type\": \"string\"},\n    \"is_gibberish\": {\"type\": \"boolean\"}\n  }\n}\n\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=## Step 0 — Check Query Validity FIRST\nBefore doing anything else, check if the customer query is \ngibberish, random characters, meaningless text, or completely \nirrelevant to any business context \n\nExamples of gibberish:\n- \"asdfghjkl\"\n- \"123456789\"  \n- \"hahahaha\"\n- \"????? !!!!\"\n- Random words with no meaning\n- even a valid question but not a in bussiness context\n\nIf the query IS gibberish:\n- Set is_gibberish to true\n- Set email_body to empty string\n- Set subject to empty string\n- Set can_answer to false\n- Set confidence to \"none\"\n- Do NOT search the knowledge base\n- Do NOT write any email\n- Do NOT do anything else\n\nIf the query is NOT gibberish continue with the rules below.\n\n---\nYou are a professional customer support assistant for a shoe company.\nYou answer questions ONLY using the provided company context retrieved from the knowledge base.\n\nYou must strictly follow these rules:\n\n## Answering Rules\n\n1. Use ONLY the provided context. Do not use external knowledge.\n2. If the context fully contains the answer, respond normally.\n3. If any part of the question is missing or unclear in the context:\n   - Do NOT guess\n   - Do NOT assume\n   - Mark the question as unanswerable\n\n## Decision Logic\n\nBefore answering, evaluate:\n\n- Does the context explicitly contain ALL required information?\n- Can the question be answered without assumptions?\n- Is the context directly relevant (not just similar)?\n\nIf YES → you can answer  \nIf NO → you cannot answer  \n\n## Output Format (STRICT JSON)\nYou MUST return ONLY valid JSON that matches the schema.\n\n## Behavior Rules (IMPORTANT)\n\n- Never hallucinate missing policy details\n- Never combine unrelated chunks to “guess” an answer\n- If unsure, always choose can_answer = false\n\n## Email Writing Rules\n\n- Always write in a professional customer support tone\n- Do NOT mention that you are an AI or bot\n- Keep the email_body short, clear, and polite (max 5–7 lines)\n- Avoid unnecessary explanations when can_answer = false\n- Even when unanswerable, respond like a support agent:\n  - acknowledge the request\n  - politely say the issue will be reviewed or escalated within \n  - do NOT mention missing context or knowledge base or not being human "
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        992,
+        1136
+      ],
+      "id": "b249833a-3d84-45b5-b9e7-8e73065ee3ab",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "poolside/laguna-m.1:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        848,
+        1360
+      ],
+      "id": "586b19b9-6da6-4607-a48c-9328d5e884e1",
+      "name": "OpenRouter Chat Model1",
+      "credentials": {
+        "openRouterApi": {
+          "id": "giDBE1PW5tgQyLQk",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "embed-english-v3.0"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsCohere",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        1568
+      ],
+      "id": "ce37e85b-c934-40cb-8f77-4859f6659767",
+      "name": "Embeddings Cohere1",
+      "credentials": {
+        "cohereApi": {
+          "id": "aYdMs2VRU9nfATKA",
+          "name": "Cohere account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Call this tool to acesss policy and FAQ database",
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "aicustomerbot",
+          "mode": "list",
+          "cachedResultName": "aicustomerbot"
+        },
+        "options": {
+          "pineconeNamespace": "FAQ"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.3,
+      "position": [
+        976,
+        1360
+      ],
+      "id": "cea4eb5f-7dfe-4b0f-8d58-9085175ecc3f",
+      "name": "KnowledgeBase",
+      "credentials": {
+        "pineconeApi": {
+          "id": "n2A62Gq2gf4yTnQu",
+          "name": "Pinecone account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "={\n  \"output\": {\n    \"subject\": {\"type\": \"string\"},\n    \"email_body\": {\"type\": \"string\"},\n    \"can_answer\": {\"type\": \"boolean\"},\n    \"confidence\": {\"type\": \"string\"},\n    \"is_gibberish\": {\"type\": \"boolean\"}\n  }\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1264,
+        1360
+      ],
+      "id": "8aba7f25-bb06-4360-b2be-9a2cf65cfbd1",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g",
+          "mode": "list",
+          "cachedResultName": "AI Customer Bot",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 914589399,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit#gid=914589399"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Google sheet Tigger').item.json.Timestamp }}",
+            "Processed": "Email Invalid"
+          },
+          "matchingColumns": [
+            "Timestamp"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Processed",
+              "displayName": "Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1056,
+        1744
+      ],
+      "id": "e6c91d13-0aa3-41a3-88ae-52a7f85b7122",
+      "name": "Invalid email",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BV7jPqUaJnQwgNlG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g",
+          "mode": "list",
+          "cachedResultName": "AI Customer Bot",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 914589399,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit#gid=914589399"
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        176,
+        1552
+      ],
+      "id": "589ab80f-3c56-41dc-8a3a-77042c57014f",
+      "name": "Google sheet Tigger",
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "O6OE5RjTho85BMiB",
+          "name": "Google Sheets Trigger account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const email = item.json['Email'];\n  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/;\n  \n  return {\n    json: {\n      email: email,\n      emailValid: emailRegex.test(email)\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        1552
+      ],
+      "id": "ac46b82a-79ba-4ce9-aa14-c4046b0f3e79",
+      "name": "Regex Validation for email"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9919fa7d-2680-454f-98d3-e02f321041af",
+              "leftValue": "={{ $json.emailValid }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        1552
+      ],
+      "id": "99084458-c013-40cd-8391-e40a46382984",
+      "name": "email validity check"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fed34116-8f7e-41e3-a3b6-cab359a0c40f",
+              "leftValue": "={{ $json.output.is_gibberish }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1472,
+        1344
+      ],
+      "id": "7f354551-40f9-4bb3-98ce-4469afe2438d",
+      "name": "Query validity check"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g",
+          "mode": "list",
+          "cachedResultName": "AI Customer Bot",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 914589399,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit#gid=914589399"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Google sheet Tigger').item.json.Timestamp }}",
+            "Processed": "Invalid Query"
+          },
+          "matchingColumns": [
+            "Timestamp"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Processed",
+              "displayName": "Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1696,
+        1248
+      ],
+      "id": "10653187-fe97-422e-8d74-4d3a0c812958",
+      "name": "Invalid query update",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BV7jPqUaJnQwgNlG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fef6ed78-fae7-4927-8a9a-55eb64f30c05",
+              "leftValue": "={{ $json.output.can_answer }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "afde4ee4-63a6-47bf-bcfd-f02f28740914",
+              "leftValue": "={{ $json.output.confidence }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1696,
+        1440
+      ],
+      "id": "db26b344-07b7-4dfc-9fd9-7d41788af830",
+      "name": "Response descison"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Google sheet Tigger').item.json.Email }}",
+        "subject": "={{ $('AI Agent').item.json.output.subject }}",
+        "emailType": "text",
+        "message": "={{ $('AI Agent').item.json.output.email_body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        1152
+      ],
+      "id": "6d348a38-a014-49f9-ad5a-979023f35871",
+      "name": "Sucessful Query reply",
+      "webhookId": "6c50aee8-6d32-4bdc-aff0-db6a75854ef5",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "lo2Tw7jTOUW0Yvx7",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g",
+          "mode": "list",
+          "cachedResultName": "AI Customer Bot",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 914589399,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit#gid=914589399"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Google sheet Tigger').item.json.Timestamp }}",
+            "Processed": "Processed"
+          },
+          "matchingColumns": [
+            "Timestamp"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Processed",
+              "displayName": "Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2144,
+        1056
+      ],
+      "id": "045a99cf-19c8-4997-b575-292e9b065ea9",
+      "name": "Processed update",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BV7jPqUaJnQwgNlG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g",
+          "mode": "list",
+          "cachedResultName": "AI Customer Bot",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 914589399,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit#gid=914589399"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Google sheet Tigger').item.json.Timestamp }}",
+            "Processed": ""
+          },
+          "matchingColumns": [
+            "Timestamp"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Processed",
+              "displayName": "Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2144,
+        1248
+      ],
+      "id": "738d615b-6074-4393-beff-12aec3db7722",
+      "name": "Error update",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BV7jPqUaJnQwgNlG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Google sheet Tigger').item.json.Email }}",
+        "subject": "={{ $('AI Agent').item.json.output.subject }}",
+        "emailType": "text",
+        "message": "={{ $('AI Agent').item.json.output.email_body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        1536
+      ],
+      "id": "564e36e2-cef6-422b-993e-1c96a44b069d",
+      "name": "Acknowledgment sent",
+      "webhookId": "6c50aee8-6d32-4bdc-aff0-db6a75854ef5",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "lo2Tw7jTOUW0Yvx7",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g",
+          "mode": "list",
+          "cachedResultName": "AI Customer Bot",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 914589399,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit#gid=914589399"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Google sheet Tigger').item.json.Timestamp }}",
+            "Processed": "In_process"
+          },
+          "matchingColumns": [
+            "Timestamp"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Processed",
+              "displayName": "Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2144,
+        1440
+      ],
+      "id": "aaaa915c-3f41-41f5-9e0d-0238908e5472",
+      "name": "Inprocess update",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BV7jPqUaJnQwgNlG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g",
+          "mode": "list",
+          "cachedResultName": "AI Customer Bot",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 914589399,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gdtmhS2rKK_jHIt3L3AVDLqEHej2CFHJiyVhrgymO4g/edit#gid=914589399"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Google sheet Tigger').item.json.Timestamp }}",
+            "Processed": "={{ $json.error }}"
+          },
+          "matchingColumns": [
+            "Timestamp"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Processed",
+              "displayName": "Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2144,
+        1632
+      ],
+      "id": "9c78418d-9d56-46e3-93f3-4a2d516ef00b",
+      "name": "Error",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BV7jPqUaJnQwgNlG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0B9WFQ5WPR",
+          "mode": "list",
+          "cachedResultName": "all-n8n"
+        },
+        "text": "=This is the alter that this customer query need to be handled on immediate basis.\nThis is the customer details\n{{ $('Google sheet Tigger').item.json.Name }}\n{{ $('Google sheet Tigger').item.json.Email }}\n{{ $('Google sheet Tigger').item.json.Category }}\n\n{{ $('Google sheet Tigger').item.json.Description }}\n",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5,
+      "position": [
+        1920,
+        1728
+      ],
+      "id": "2051f842-66d5-428c-8194-fd3ebfcd8943",
+      "name": "Slack alter for team to handle query on urgent basis",
+      "webhookId": "d415447a-8b06-4e46-b4da-c3bc8522cc7b",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "q02VU0gNzSd5a6Pr",
+          "name": "Slack account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "13C-u7IoOBjlDYlT01FFaE3LqQAY2597M",
+          "mode": "list",
+          "cachedResultName": "FAQ",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/13C-u7IoOBjlDYlT01FFaE3LqQAY2597M"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        176,
+        624
+      ],
+      "id": "c4db971b-39da-4c96-b6a8-adfbbb66d480",
+      "name": "Google Drive Trigger",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1BFetXW2IFWzFlSr",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Knowledge Base Setup\nWhenever new information needs to be added to the knowledge base, \nit is uploaded to Google Drive, which triggers the workflow. The \ndocument is downloaded from Google Drive, split into chunks, and \nembedded via Cohere into Pinecone.\n\nThis runs separately from live queries , update this whenever \nsupport docs change.",
+        "height": 288,
+        "width": 320
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1136,
+        432
+      ],
+      "typeVersion": 1,
+      "id": "bad220d4-c4eb-4e33-bf4c-0bf49a0d951e",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "##  Trigger: Customer Query Intake\nCustomer submits a \nGoogle Form → response lands in \nGoogle Sheet → new row triggers this workflow.",
+        "height": 176,
+        "width": 256
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -16,
+        1136
+      ],
+      "typeVersion": 1,
+      "id": "fb102117-2040-4b98-a51e-56ccb821af35",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Validation\nChecks email format before processing. Invalid emails \nare logged and routed to \"Invalid email\" update - \nno AI calls wasted on garbage input.",
+        "height": 176
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        624,
+        1568
+      ],
+      "typeVersion": 1,
+      "id": "997dd1ee-820a-4283-b11f-ca3962bcfa28",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## AI Agent \nuses the Pinecone knowledge base as a tool to \nanswer (not just guessing). \nStructured Output Parser forces consistent JSON.",
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        976,
+        1024
+      ],
+      "typeVersion": 1,
+      "id": "4b951edb-5310-459a-8a08-92f55cd7aff2",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Query Validity Check\nThe AI Agent first checks whether the incoming query is valid \nor gibberish.\n\n- If gibberish → log it to the Google Sheet and stop (no \n  further processing).\n- If valid → continue to the next step (AI Agent response \n  + routing).",
+        "height": 240,
+        "width": 352
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1280,
+        800
+      ],
+      "typeVersion": 1,
+      "id": "63f9213d-066b-4495-865d-4fc6fc967de8",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "##  Routing Logic\nDecides what happens to each response:\n- Confident answer → Gmail reply + sheet update\n\n- Not Confident to reply → then an acknowledgment mail sent -> Slack alert to support team -> Google sheet update",
+        "height": 240
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1536,
+        1520
+      ],
+      "typeVersion": 1,
+      "id": "e1ead18d-6aa4-4dd0-afb7-2bd8bff73798",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Pinecone Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Cohere": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Pinecone Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Pinecone Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Cohere1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "KnowledgeBase",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KnowledgeBase": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Query validity check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google sheet Tigger": {
+      "main": [
+        [
+          {
+            "node": "Regex Validation for email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Regex Validation for email": {
+      "main": [
+        [
+          {
+            "node": "email validity check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "email validity check": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query validity check": {
+      "main": [
+        [
+          {
+            "node": "Invalid query update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response descison",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response descison": {
+      "main": [
+        [
+          {
+            "node": "Sucessful Query reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Acknowledgment sent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack alter for team to handle query on urgent basis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sucessful Query reply": {
+      "main": [
+        [
+          {
+            "node": "Processed update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledgment sent": {
+      "main": [
+        [
+          {
+            "node": "Inprocess update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "05362f1b-7c1d-4de4-83cc-8471c5134d96",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b65feb1df8d81d34bae920af95d15054144d0ac30871a261b4afd6db0d63f4ed"
+  },
+  "id": "Fpg4U0e2qzVq33eZ",
+  "tags": []
+}
