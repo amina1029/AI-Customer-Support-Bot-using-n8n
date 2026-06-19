@@ -4,6 +4,7 @@ An automated customer support system that answers customer queries using a compa
 
 The workflow has two independent parts: a **knowledge base ingestion pipeline** and a **live query-handling pipeline**.
 
+
 ---
 
 ## Part 1: Knowledge Base Setup
@@ -17,7 +18,7 @@ Whenever new information needs to be added to the knowledge base, it is uploaded
 4. Each chunk is embedded using Cohere
 5. The embeddings are stored in Pinecone as the vector database
 
-This pipeline runs independently of live customer queries — update it whenever company policy or support docs change.
+This pipeline runs independently of live customer queries: update it whenever company policy or support docs change.
 
 ---
 
@@ -46,7 +47,7 @@ Based on the AI Agent's confidence, the response is routed one of two ways:
 Every outcome (processed, error, invalid, in-process) is written back to the same Google Sheet, so it doubles as a live status log of all customer queries.
 
 ### Error Handling
-Error handling is built into the workflow — failures during processing are caught and logged back to the Google Sheet (rather than failing silently), so no customer query is lost without a trace.
+Error handling is built into the workflow; failures during processing are caught and logged back to the Google Sheet (rather than failing silently), so no customer query is lost without a trace.
 
 ---
 
