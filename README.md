@@ -52,12 +52,12 @@ Error handling is built into the workflow; failures during processing are caught
 ---
 
 ## Stack
-- **n8n** — workflow orchestration
-- **Google Drive** — knowledge base source documents
-- **Google Forms + Google Sheets** — customer query intake and logging
-- **Pinecone** — vector database
-- **Cohere** — embeddings
-- **OpenRouter** — LLM for the AI Agent
-- **Gmail** — customer email replies
-- **Slack** — team escalation alerts
+- **n8n**  workflow orchestration
+- **Google Drive**  knowledge base source documents
+- **Google Forms + Google Sheets**  customer query intake and logging
+- **Pinecone**  vector database
+- **Cohere**  embeddings
+- **OpenRouter**  LLM for the AI Agent
+- **Gmail**  customer email replies
+- **Slack**  team escalation alerts
 
