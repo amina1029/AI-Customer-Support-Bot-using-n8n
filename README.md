@@ -1,4 +1,4 @@
-# AI Customer Support Bot — RAG-powered automation (n8n)
+# AI Customer Support Bot - RAG-powered automation (n8n)
 
 An automated customer support system that answers customer queries using a company knowledge base, and intelligently decides when to resolve a query itself versus escalating it to a human team. Built entirely in n8n.
 
